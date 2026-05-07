@@ -14,7 +14,7 @@ def transcode_wav_bytes(wav_bytes: bytes, target_format: str, ffmpeg_binary: str
     elif fmt == "ogg":
         codec_args = ["-f", "ogg", "-codec:a", "libvorbis"]
     else:
-        raise ValueError(f"unsupported format: {target_format}")
+        raise ValueError(f"Неподдерживаемый формат: {target_format}")
 
     cmd = [
         ffmpeg_binary,
@@ -36,9 +36,9 @@ def transcode_wav_bytes(wav_bytes: bytes, target_format: str, ffmpeg_binary: str
             check=True,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError("ffmpeg is not installed or not found in PATH") from exc
+        raise RuntimeError("ffmpeg не установлен или не найден в PATH") from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.decode("utf-8", errors="ignore").strip()
-        raise RuntimeError(f"ffmpeg transcode failed: {stderr or 'unknown error'}") from exc
+        raise RuntimeError(f"Ошибка ffmpeg при транскодировании: {stderr or 'неизвестная ошибка'}") from exc
 
     return completed.stdout

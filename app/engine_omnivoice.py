@@ -72,7 +72,7 @@ class OmniVoiceEngine:
 
         audio_list = model.generate(**kwargs)
         if not audio_list:
-            raise RuntimeError("OmniVoice returned no audio")
+            raise RuntimeError("OmniVoice не вернул аудио")
 
         wav_buffer = io.BytesIO()
         sf.write(wav_buffer, audio_list[0], self.sample_rate_hz, format="WAV", subtype="PCM_16")
