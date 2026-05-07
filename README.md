@@ -49,6 +49,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 curl http://localhost:8000/health
 ```
 
+Список голосов:
+
+```powershell
+curl http://localhost:8000/v1/voices
+```
+
 ## Переменные окружения
 
 - `API_PATH` (default: `/v1/synthesize`)

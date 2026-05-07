@@ -79,6 +79,13 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 async def health() -> dict[str, Any]:
     return {"ok": True}
 
+@app.get("/v1/voices")
+async def list_voices() -> dict[str, Any]:
+    voices: list[dict[str, Any]] = [{"id": "default"}]
+    for voice_id in sorted(app.state.voice_map.keys()):
+        voices.append({"id": voice_id, "instruct": app.state.voice_map[voice_id]})
+    return {"voices": voices}
+
 
 async def synthesize(
     request: Request,
