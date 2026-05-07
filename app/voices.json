@@ -1,22 +1,22 @@
 {
   "narrator_female": {
     "name": "Диктор (женский)",
-    "instruct": "female, neutral pitch, clear articulation"
+    "instruct": "female, neutral pitch, clear articulation, russian accent"
   },
   "narrator_male": {
     "name": "Диктор (мужской)",
-    "instruct": "male, neutral pitch, clear articulation"
+    "instruct": "male, neutral pitch, clear articulation, russian accent"
   },
   "assistant_friendly": {
     "name": "Ассистент (дружелюбный)",
-    "instruct": "female, medium pitch, warm and friendly"
+    "instruct": "female, medium pitch, warm and friendly, russian accent"
   },
   "assistant_formal": {
     "name": "Ассистент (официальный)",
-    "instruct": "male, medium-low pitch, formal and calm"
+    "instruct": "male, medium-low pitch, formal and calm, russian accent"
   },
   "assistant_crazy": {
     "name": "Ассистент (сумасшедший)",
-    "instruct": "male, high pitch, crazy and funny"
+    "instruct": "male, very high pitch, whisper, russian accent"
   }
 }
