@@ -29,7 +29,8 @@ class Settings(BaseSettings):
     max_text_chars: int = Field(default=2000)
 
     max_concurrent_requests: int = Field(default=1)
-    semaphore_acquire_timeout_sec: float = Field(default=0.05)
+    # How long to wait in queue for a free synthesis slot before returning 429.
+    semaphore_acquire_timeout_sec: float = Field(default=10.0)
     synthesis_timeout_sec: float = Field(default=90.0)
     warmup_on_startup: bool = Field(default=False)
 

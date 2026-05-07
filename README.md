@@ -68,7 +68,7 @@ curl http://localhost:8000/v1/voices
 - `MAX_RATE` (default: `2.0`)
 - `MAX_TEXT_CHARS` (default: `2000`)
 - `MAX_CONCURRENT_REQUESTS` (default: `1`)
-- `SEMAPHORE_ACQUIRE_TIMEOUT_SEC` (default: `0.05`)
+- `SEMAPHORE_ACQUIRE_TIMEOUT_SEC` (default: `10.0`)
 - `SYNTHESIS_TIMEOUT_SEC` (default: `90`)
 - `WARMUP_ON_STARTUP` (default: `false`)
 - `FFMPEG_BINARY` (default: `ffmpeg`)
