@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 from app.config import get_settings, resolve_voices_path
@@ -31,23 +32,20 @@ def make_error_response(status_code: int, code: str, message: str) -> JSONRespon
     payload = ApiErrorResponse(error=ApiErrorBody(code=code, message=message)).model_dump()
     return JSONResponse(status_code=status_code, content=payload)
 
-def voice_entry_to_public(voice_id: str, entry: Any) -> dict[str, Any]:
-    if isinstance(entry, dict):
-        return {"id": voice_id, "name": entry.get("name") or voice_id}
-    return {"id": voice_id, "name": voice_id}
-
-
-def voice_entry_to_instruct(entry: Any) -> str | None:
-    if isinstance(entry, dict):
-        instruct = entry.get("instruct")
-        return str(instruct) if instruct else None
-    if isinstance(entry, str):
-        return entry
-    return None
-
 
 settings = get_settings()
 app = FastAPI(title="OmniVoice TTS API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://localhost:3000",
+    ],
+    allow_origin_regex=r"^https?://127\.0\.0\.1(:\d+)?$",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.state.base_dir = Path(__file__).resolve().parent.parent
 app.state.settings = settings
@@ -86,7 +84,7 @@ async def validation_exception_handler(_: Request, exc: ValidationError) -> JSON
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
-    return make_error_response(500, "internal_error", f"Внутренняя ошибка сервера: {exc}")
+    return make_error_response(500, "internal_error", str(exc))
 
 
 @app.get("/health")
@@ -98,7 +96,16 @@ async def health() -> dict[str, Any]:
 async def list_voices() -> dict[str, Any]:
     voices: list[dict[str, Any]] = [{"id": "default", "name": "По умолчанию"}]
     for voice_id in sorted(app.state.voice_map.keys()):
-        voices.append(voice_entry_to_public(voice_id, app.state.voice_map[voice_id]))
+        raw = app.state.voice_map[voice_id]
+        if isinstance(raw, dict):
+            voices.append(
+                {
+                    "id": voice_id,
+                    "name": raw.get("name") or voice_id,
+                }
+            )
+        else:
+            voices.append({"id": voice_id, "name": voice_id})
     return {"voices": voices}
 
 
@@ -109,43 +116,46 @@ async def synthesize(
 ) -> Response:
     content_type = request.headers.get("content-type", "")
     if not content_type.lower().startswith("application/json"):
-        raise HTTPException(status_code=400, detail="Content-Type должен быть application/json")
+        raise HTTPException(status_code=400, detail="content-type must be application/json")
 
     if accept and "audio/" not in accept and "application/json" not in accept and "*/*" not in accept:
-        raise HTTPException(status_code=406, detail="Неподдерживаемый заголовок Accept")
+        raise HTTPException(status_code=406, detail="not acceptable")
 
     if settings.tts_api_key:
         if not authorization:
-            raise HTTPException(status_code=401, detail="Отсутствует токен авторизации (Bearer)")
+            raise HTTPException(status_code=401, detail="missing bearer token")
         expected_value = f"Bearer {settings.tts_api_key}"
         if authorization.strip() != expected_value:
-            raise HTTPException(status_code=403, detail="Неверный токен авторизации (Bearer)")
+            raise HTTPException(status_code=403, detail="invalid bearer token")
 
     payload = SynthesizeRequest(**await request.json())
 
     if len(payload.text) > settings.max_text_chars:
         raise HTTPException(
             status_code=400,
-            detail=f"Слишком длинный text: максимум {settings.max_text_chars} символов",
+            detail=f"text is too long: max {settings.max_text_chars} chars",
         )
 
     if payload.rate < settings.min_rate or payload.rate > settings.max_rate:
         raise HTTPException(
             status_code=400,
-            detail=f"rate должен быть в диапазоне {settings.min_rate}..{settings.max_rate}",
+            detail=f"rate must be between {settings.min_rate} and {settings.max_rate}",
         )
 
     target_format = payload.format.lower()
     if target_format not in {"wav", "mp3", "ogg"}:
-        raise HTTPException(status_code=400, detail="Неподдерживаемый format")
+        raise HTTPException(status_code=400, detail="unsupported format")
 
     instruct: str | None = None
     voice_key = payload.voice.strip()
     if voice_key.lower() != "default":
-        voice_entry = app.state.voice_map.get(voice_key)
-        instruct = voice_entry_to_instruct(voice_entry)
-        if not instruct:
-            raise HTTPException(status_code=400, detail=f"Неподдерживаемый voice: {voice_key}")
+        raw = app.state.voice_map.get(voice_key)
+        if isinstance(raw, dict):
+            instruct = raw.get("instruct")
+        else:
+            instruct = raw
+        if not instruct or not isinstance(instruct, str):
+            raise HTTPException(status_code=400, detail=f"unsupported voice: {voice_key}")
 
     try:
         await asyncio.wait_for(
@@ -153,7 +163,7 @@ async def synthesize(
             timeout=settings.semaphore_acquire_timeout_sec,
         )
     except TimeoutError as exc:
-        raise HTTPException(status_code=429, detail="Сервер занят, повторите позже") from exc
+        raise HTTPException(status_code=429, detail="server is busy, retry later") from exc
 
     try:
         wav_bytes = await asyncio.wait_for(
@@ -166,7 +176,7 @@ async def synthesize(
             timeout=settings.synthesis_timeout_sec,
         )
     except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="Таймаут синтеза") from exc
+        raise HTTPException(status_code=504, detail="synthesis timeout") from exc
     finally:
         app.state.synthesis_semaphore.release()
 
