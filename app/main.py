@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 from app.config import get_settings, resolve_voices_path
@@ -35,17 +34,6 @@ def make_error_response(status_code: int, code: str, message: str) -> JSONRespon
 
 settings = get_settings()
 app = FastAPI(title="OmniVoice TTS API", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://localhost:3000",
-    ],
-    allow_origin_regex=r"^https?://127\.0\.0\.1(:\d+)?$",
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.state.base_dir = Path(__file__).resolve().parent.parent
 app.state.settings = settings
@@ -84,7 +72,7 @@ async def validation_exception_handler(_: Request, exc: ValidationError) -> JSON
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
-    return make_error_response(500, "internal_error", str(exc))
+    return make_error_response(500, "internal_error", f"Внутренняя ошибка сервера: {exc}")
 
 
 @app.get("/health")
@@ -116,35 +104,35 @@ async def synthesize(
 ) -> Response:
     content_type = request.headers.get("content-type", "")
     if not content_type.lower().startswith("application/json"):
-        raise HTTPException(status_code=400, detail="content-type must be application/json")
+        raise HTTPException(status_code=400, detail="Content-Type должен быть application/json")
 
     if accept and "audio/" not in accept and "application/json" not in accept and "*/*" not in accept:
-        raise HTTPException(status_code=406, detail="not acceptable")
+        raise HTTPException(status_code=406, detail="Неподдерживаемый заголовок Accept")
 
     if settings.tts_api_key:
         if not authorization:
-            raise HTTPException(status_code=401, detail="missing bearer token")
+            raise HTTPException(status_code=401, detail="Отсутствует токен авторизации (Bearer)")
         expected_value = f"Bearer {settings.tts_api_key}"
         if authorization.strip() != expected_value:
-            raise HTTPException(status_code=403, detail="invalid bearer token")
+            raise HTTPException(status_code=403, detail="Неверный токен авторизации (Bearer)")
 
     payload = SynthesizeRequest(**await request.json())
 
     if len(payload.text) > settings.max_text_chars:
         raise HTTPException(
             status_code=400,
-            detail=f"text is too long: max {settings.max_text_chars} chars",
+            detail=f"Слишком длинный text: максимум {settings.max_text_chars} символов",
         )
 
     if payload.rate < settings.min_rate or payload.rate > settings.max_rate:
         raise HTTPException(
             status_code=400,
-            detail=f"rate must be between {settings.min_rate} and {settings.max_rate}",
+            detail=f"rate должен быть в диапазоне {settings.min_rate}..{settings.max_rate}",
         )
 
     target_format = payload.format.lower()
     if target_format not in {"wav", "mp3", "ogg"}:
-        raise HTTPException(status_code=400, detail="unsupported format")
+        raise HTTPException(status_code=400, detail="Неподдерживаемый format")
 
     instruct: str | None = None
     voice_key = payload.voice.strip()
@@ -155,7 +143,7 @@ async def synthesize(
         else:
             instruct = raw
         if not instruct or not isinstance(instruct, str):
-            raise HTTPException(status_code=400, detail=f"unsupported voice: {voice_key}")
+            raise HTTPException(status_code=400, detail=f"Неподдерживаемый voice: {voice_key}")
 
     try:
         await asyncio.wait_for(
@@ -163,20 +151,23 @@ async def synthesize(
             timeout=settings.semaphore_acquire_timeout_sec,
         )
     except TimeoutError as exc:
-        raise HTTPException(status_code=429, detail="server is busy, retry later") from exc
+        raise HTTPException(status_code=429, detail="Сервер занят, повторите позже") from exc
 
     try:
         wav_bytes = await asyncio.wait_for(
             asyncio.to_thread(
-                app.state.engine.synthesize_wav_bytes,
+                app.state.engine.synthesize_wav_bytes_with_fallback,
                 payload.text,
                 payload.rate,
+                settings.gen_num_step,
+                settings.gen_num_step_fallback,
+                settings.gen_fallback_dtype,
                 instruct,
             ),
             timeout=settings.synthesis_timeout_sec,
         )
     except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="synthesis timeout") from exc
+        raise HTTPException(status_code=504, detail="Таймаут синтеза") from exc
     finally:
         app.state.synthesis_semaphore.release()
 

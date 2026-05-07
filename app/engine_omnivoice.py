@@ -4,6 +4,7 @@ import io
 import threading
 from typing import Any
 
+import numpy as np
 import soundfile as sf
 
 
@@ -15,7 +16,7 @@ class OmniVoiceEngine:
         self.sample_rate_hz = sample_rate_hz
 
         self._lock = threading.Lock()
-        self._model: Any | None = None
+        self._models: dict[str, Any] = {}
 
     def _resolve_dtype(self) -> Any:
         import torch
@@ -26,6 +27,16 @@ class OmniVoiceEngine:
             "bfloat16": torch.bfloat16,
         }
         return mapping.get(self.dtype.lower(), torch.float16)
+
+    def _resolve_dtype_by_name(self, dtype_name: str) -> Any:
+        import torch
+
+        mapping = {
+            "float16": torch.float16,
+            "float32": torch.float32,
+            "bfloat16": torch.bfloat16,
+        }
+        return mapping.get(dtype_name.lower(), torch.float32)
 
     def _effective_device_map(self) -> str:
         """
@@ -43,37 +54,90 @@ class OmniVoiceEngine:
 
         return self.device_map
 
-    def get_model(self) -> Any:
-        if self._model is not None:
-            return self._model
+    def get_model(self, dtype_name: str | None = None) -> Any:
+        dtype_key = (dtype_name or self.dtype).lower()
+        if dtype_key in self._models:
+            return self._models[dtype_key]
 
         with self._lock:
-            if self._model is not None:
-                return self._model
+            if dtype_key in self._models:
+                return self._models[dtype_key]
 
             from omnivoice import OmniVoice
 
-            self._model = OmniVoice.from_pretrained(
+            model = OmniVoice.from_pretrained(
                 self.model_name,
                 device_map=self._effective_device_map(),
-                dtype=self._resolve_dtype(),
+                dtype=self._resolve_dtype_by_name(dtype_key),
             )
-            return self._model
+            self._models[dtype_key] = model
+            return model
 
-    def synthesize_wav_bytes(self, text: str, speed: float, instruct: str | None = None) -> bytes:
-        model = self.get_model()
+    def _postprocess_audio(self, audio: Any) -> np.ndarray:
+        arr = np.asarray(audio, dtype=np.float32)
+        if arr.size == 0:
+            raise ValueError("Пустой аудиосигнал")
+        if not np.isfinite(arr).all():
+            raise ValueError("Аудио содержит NaN/Inf")
+        max_abs = float(np.max(np.abs(arr)))
+        if max_abs > 1.0:
+            arr = arr / max_abs
+        arr = np.clip(arr, -1.0, 1.0)
+        return arr
+
+    def synthesize_wav_bytes(
+        self,
+        text: str,
+        speed: float,
+        num_step: int,
+        instruct: str | None = None,
+        *,
+        dtype_name: str | None = None,
+    ) -> bytes:
+        model = self.get_model(dtype_name=dtype_name)
 
         kwargs: dict[str, Any] = {
             "text": text,
             "speed": speed,
+            "num_step": num_step,
         }
         if instruct:
             kwargs["instruct"] = instruct
 
-        audio_list = model.generate(**kwargs)
+        try:
+            import torch
+
+            with torch.inference_mode():
+                audio_list = model.generate(**kwargs)
+        except Exception:
+            audio_list = model.generate(**kwargs)
+
         if not audio_list:
             raise RuntimeError("OmniVoice не вернул аудио")
 
+        audio = self._postprocess_audio(audio_list[0])
+
         wav_buffer = io.BytesIO()
-        sf.write(wav_buffer, audio_list[0], self.sample_rate_hz, format="WAV", subtype="PCM_16")
+        sr = int(getattr(model, "sampling_rate", self.sample_rate_hz))
+        sf.write(wav_buffer, audio, sr, format="WAV", subtype="PCM_16")
         return wav_buffer.getvalue()
+
+    def synthesize_wav_bytes_with_fallback(
+        self,
+        text: str,
+        speed: float,
+        num_step: int,
+        fallback_num_step: int,
+        fallback_dtype: str,
+        instruct: str | None = None,
+    ) -> bytes:
+        try:
+            return self.synthesize_wav_bytes(text, speed, num_step, instruct)
+        except Exception:
+            return self.synthesize_wav_bytes(
+                text,
+                speed,
+                fallback_num_step,
+                instruct,
+                dtype_name=fallback_dtype,
+            )

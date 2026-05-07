@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     model_dtype: str = Field(default="float16")
     sample_rate_hz: int = Field(default=24000)
 
+    # Generation quality knobs (help reduce occasional noisy output)
+    gen_num_step: int = Field(default=32)
+    gen_num_step_fallback: int = Field(default=48)
+    gen_fallback_dtype: str = Field(default="float32")
+
     min_rate: float = Field(default=0.5)
     max_rate: float = Field(default=2.0)
     max_text_chars: int = Field(default=2000)
