@@ -14,6 +14,7 @@ FastAPI сервис, реализующий контракт TTS API повер
 - Response:
   - по умолчанию бинарное аудио `audio/*`
   - опционально JSON `{ "audioBase64": "..." }` через `RESPONSE_MODE=base64`
+  - word-level alignment (тайминги по словам) через `?includeAlignment=1` (ответ будет JSON с `audioBase64` + `alignment.words`)
 - Ошибки: `400/401/403/404/429/5xx` (в JSON формате `{"error":{"code","message"}}`).
 
 ## Установка (Windows / PowerShell)
@@ -74,6 +75,20 @@ curl http://localhost:8000/v1/voices
 - `FFMPEG_BINARY` (default: `ffmpeg`)
 - `VOICES_FILE` (default: `app/voices.json`)
 
+### Alignment (тайминги по словам)
+
+Alignment включается **только** при `?includeAlignment=1` и возвращается в JSON (вместе с `audioBase64`).
+
+- `ALIGNMENT_ENABLED` (default: `true`)
+- `ALIGNMENT_BACKEND` (default: `whisperx`)
+- `ALIGNMENT_LANGUAGE_CODE` (default: `ru`)
+- `ALIGNMENT_DEVICE` (default: `cpu`) — можно `cuda`, если WhisperX/torch настроены под GPU
+- `ALIGNMENT_TIMEOUT_SEC` (default: `30.0`)
+- `ALIGNMENT_MAX_CONCURRENT_REQUESTS` (default: `1`)
+- `ALIGNMENT_ACQUIRE_TIMEOUT_SEC` (default: `1.0`)
+
+Примечание: `whisperx` — тяжёлая зависимость и увеличивает latency; используйте alignment только когда он нужен.
+
 ## Примеры запросов
 
 ### WAV
@@ -84,6 +99,29 @@ curl -X POST "http://localhost:8000/v1/synthesize" `
   -H "Accept: audio/*, application/json" `
   -o out.wav `
   -d "{\"text\":\"Привет! Это тест TTS.\",\"voice\":\"default\",\"rate\":1.0,\"format\":\"wav\"}"
+```
+
+### WAV + выравнивание (тайминги по словам)
+
+```powershell
+curl -X POST "http://localhost:8000/v1/synthesize?includeAlignment=1" `
+  -H "Content-Type: application/json" `
+  -H "Accept: application/json" `
+  -d "{\"text\":\"Привет мир\",\"voice\":\"default\",\"rate\":1.0,\"format\":\"wav\"}"
+```
+
+Ответ:
+
+```json
+{
+  "audioBase64": "...",
+  "alignment": {
+    "words": [
+      { "word": "Привет", "startSec": 0.12, "endSec": 0.44 },
+      { "word": "мир", "startSec": 0.45, "endSec": 0.73 }
+    ]
+  }
+}
 ```
 
 ### MP3

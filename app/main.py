@@ -6,10 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
+from app.alignment import get_whisperx_aligner
 from app.config import get_settings, resolve_voices_path
 from app.engine_omnivoice import OmniVoiceEngine
 from app.schemas import ApiErrorBody, ApiErrorResponse, SynthesizeRequest
@@ -44,6 +45,7 @@ app.state.engine = OmniVoiceEngine(
     sample_rate_hz=settings.sample_rate_hz,
 )
 app.state.synthesis_semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
+app.state.alignment_semaphore = asyncio.Semaphore(settings.alignment_max_concurrent_requests)
 app.state.voice_map = {}
 
 
@@ -101,6 +103,7 @@ async def synthesize(
     request: Request,
     authorization: str | None = Header(default=None),
     accept: str | None = Header(default=None),
+    includeAlignment: bool = Query(default=False),
 ) -> Response:
     content_type = request.headers.get("content-type", "")
     if not content_type.lower().startswith("application/json"):
@@ -179,6 +182,49 @@ async def synthesize(
             wav_bytes,
             target_format,
             settings.ffmpeg_binary,
+        )
+
+    if includeAlignment:
+        if not settings.alignment_enabled:
+            raise HTTPException(status_code=400, detail="Alignment отключен на сервере")
+
+        if settings.alignment_backend != "whisperx":
+            raise HTTPException(status_code=500, detail="Неподдерживаемый alignment backend")
+
+        try:
+            await asyncio.wait_for(
+                app.state.alignment_semaphore.acquire(),
+                timeout=settings.alignment_acquire_timeout_sec,
+            )
+        except TimeoutError as exc:
+            raise HTTPException(status_code=429, detail="Сервер занят (alignment), повторите позже") from exc
+
+        try:
+            aligner = get_whisperx_aligner(
+                language_code=settings.alignment_language_code,
+                device=settings.alignment_device,
+            )
+            words = await asyncio.wait_for(
+                asyncio.to_thread(aligner.align_words, payload.text, wav_bytes),
+                timeout=settings.alignment_timeout_sec,
+            )
+        except TimeoutError:
+            words = []
+        except Exception:
+            words = []
+        finally:
+            app.state.alignment_semaphore.release()
+
+        return JSONResponse(
+            {
+                "audioBase64": base64.b64encode(audio_bytes).decode("ascii"),
+                "alignment": {
+                    "words": [
+                        {"word": w.word, "startSec": w.startSec, "endSec": w.endSec}
+                        for w in words
+                    ]
+                },
+            }
         )
 
     if settings.response_mode == "base64":

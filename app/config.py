@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     gen_num_step_fallback: int = Field(default=48)
     gen_fallback_dtype: str = Field(default="float32")
 
+    # Alignment (forced alignment for word timestamps)
+    alignment_backend: str = Field(default="whisperx")
+    alignment_enabled: bool = Field(default=True)
+    alignment_language_code: str = Field(default="ru")
+    alignment_device: str = Field(default="cpu")
+    alignment_timeout_sec: float = Field(default=30.0)
+    alignment_max_concurrent_requests: int = Field(default=1)
+    alignment_acquire_timeout_sec: float = Field(default=1.0)
+
     min_rate: float = Field(default=0.5)
     max_rate: float = Field(default=2.0)
     max_text_chars: int = Field(default=2000)
