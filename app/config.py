@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     sample_rate_hz: int = Field(default=24000)
 
     # Generation quality knobs (help reduce occasional noisy output)
-    gen_num_step: int = Field(default=32)
-    gen_num_step_fallback: int = Field(default=48)
+    gen_num_step: int = Field(default=64)
+    gen_num_step_fallback: int = Field(default=128)
     gen_fallback_dtype: str = Field(default="float32")
 
     # Alignment (forced alignment for word timestamps)
