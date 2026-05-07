@@ -14,5 +14,9 @@
   "assistant_formal": {
     "name": "Ассистент (официальный)",
     "instruct": "male, medium-low pitch, formal and calm"
+  },
+  "assistant_crazy": {
+    "name": "Ассистент (сумасшедший)",
+    "instruct": "male, high pitch, crazy and funny"
   }
 }
