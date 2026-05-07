@@ -31,6 +31,20 @@ def make_error_response(status_code: int, code: str, message: str) -> JSONRespon
     payload = ApiErrorResponse(error=ApiErrorBody(code=code, message=message)).model_dump()
     return JSONResponse(status_code=status_code, content=payload)
 
+def voice_entry_to_public(voice_id: str, entry: Any) -> dict[str, Any]:
+    if isinstance(entry, dict):
+        return {"id": voice_id, "name": entry.get("name") or voice_id}
+    return {"id": voice_id, "name": voice_id}
+
+
+def voice_entry_to_instruct(entry: Any) -> str | None:
+    if isinstance(entry, dict):
+        instruct = entry.get("instruct")
+        return str(instruct) if instruct else None
+    if isinstance(entry, str):
+        return entry
+    return None
+
 
 settings = get_settings()
 app = FastAPI(title="OmniVoice TTS API", version="1.0.0")
@@ -82,9 +96,9 @@ async def health() -> dict[str, Any]:
 
 @app.get("/v1/voices")
 async def list_voices() -> dict[str, Any]:
-    voices: list[dict[str, Any]] = [{"id": "default"}]
+    voices: list[dict[str, Any]] = [{"id": "default", "name": "По умолчанию"}]
     for voice_id in sorted(app.state.voice_map.keys()):
-        voices.append({"id": voice_id, "instruct": app.state.voice_map[voice_id]})
+        voices.append(voice_entry_to_public(voice_id, app.state.voice_map[voice_id]))
     return {"voices": voices}
 
 
@@ -128,7 +142,8 @@ async def synthesize(
     instruct: str | None = None
     voice_key = payload.voice.strip()
     if voice_key.lower() != "default":
-        instruct = app.state.voice_map.get(voice_key)
+        voice_entry = app.state.voice_map.get(voice_key)
+        instruct = voice_entry_to_instruct(voice_entry)
         if not instruct:
             raise HTTPException(status_code=400, detail=f"Неподдерживаемый voice: {voice_key}")
 
