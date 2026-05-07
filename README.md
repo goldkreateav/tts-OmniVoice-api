@@ -27,6 +27,16 @@ pip install -r requirements.txt
 
 Дополнительно для `mp3/ogg` нужен `ffmpeg` в `PATH`.
 
+### Примечание про GPU (исправляет 500 с cuda:0/cuda:1)
+
+Если на сервере несколько GPU, `MODEL_DEVICE_MAP=auto` может привести к шардированию модели по нескольким CUDA-устройствам и ошибке вида:
+
+`Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cuda:1`
+
+В этом случае задайте одну GPU явно, например:
+
+`MODEL_DEVICE_MAP=cuda:0`
+
 ## Запуск
 
 ```powershell

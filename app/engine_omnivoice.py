@@ -27,6 +27,22 @@ class OmniVoiceEngine:
         }
         return mapping.get(self.dtype.lower(), torch.float16)
 
+    def _effective_device_map(self) -> str:
+        """
+        OmniVoice/accelerate may shard weights across multiple CUDA devices when device_map="auto".
+        Some internal ops can then end up mixing tensors across devices (e.g. cuda:0 + cuda:1),
+        causing runtime errors. To keep inference stable, we force a single GPU when multiple are present.
+        """
+        try:
+            import torch
+
+            if self.device_map == "auto" and torch.cuda.is_available() and torch.cuda.device_count() > 1:
+                return "cuda:0"
+        except Exception:
+            pass
+
+        return self.device_map
+
     def get_model(self) -> Any:
         if self._model is not None:
             return self._model
@@ -39,7 +55,7 @@ class OmniVoiceEngine:
 
             self._model = OmniVoice.from_pretrained(
                 self.model_name,
-                device_map=self.device_map,
+                device_map=self._effective_device_map(),
                 dtype=self._resolve_dtype(),
             )
             return self._model
